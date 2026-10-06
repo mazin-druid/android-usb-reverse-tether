@@ -8,7 +8,7 @@ fail() { echo "  [FAIL] $*"; }
 
 echo "== Ubuntu (WSL) =="
 echo "  kernel $(uname -r)"
-for t in adb lsusb wget; do command -v $t >/dev/null && ok "$t installed" || fail "$t missing -> run the launcher (it installs it)"; done
+for t in adb lsusb wget iptables ip6tables; do command -v $t >/dev/null && ok "$t installed" || fail "$t missing -> run the launcher (it installs it)"; done
 
 echo "== OpenTether relay =="
 [ -x ~/$RELAY ] && ok "relay binary ~/$RELAY" || fail "relay binary missing -> run the launcher"

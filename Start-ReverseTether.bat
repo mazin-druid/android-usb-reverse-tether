@@ -58,11 +58,11 @@ if not defined DISTRO (
 echo       Using WSL distro !DISTRO!.
 echo.
 
-echo [3/9] Checking Linux tools (adb, lsusb, wget)...
+echo [3/9] Checking Linux tools (adb, lsusb, wget, iptables)...
 rem Not redirected: apt may ask for your Ubuntu sudo password here.
-wsl -d %DISTRO% -- bash -lc "command -v adb && command -v lsusb && command -v wget || (sudo apt-get update && sudo apt-get install -y adb usbutils wget)" >nul
+wsl -d %DISTRO% -- bash -lc "command -v adb && command -v lsusb && command -v wget && command -v iptables || (sudo apt-get update && sudo apt-get install -y adb usbutils wget iptables)" >nul
 if !errorlevel! neq 0 (
-    echo [ERROR] Could not install adb/usbutils/wget in %DISTRO%.
+    echo [ERROR] Could not install adb/usbutils/wget/iptables in %DISTRO%.
     pause
     exit /b 1
 )

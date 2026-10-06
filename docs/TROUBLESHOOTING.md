@@ -58,6 +58,9 @@ No prompt? Developer options → **Revoke USB debugging authorizations**, then r
   Characters don't show while typing; that's normal.
 - Forgot it? In PowerShell: `wsl -d Ubuntu -u root passwd <your-linux-username>`.
 - "Relay exited": close the window and run the launcher again.
+- `startup failed: ... exec: "iptables": executable file not found`: fresh WSL Ubuntu images don't include
+  iptables. The launcher installs it (v1.0.2+); on older versions run
+  `wsl -d Ubuntu -- sudo apt-get install -y iptables`, then the launcher again.
 
 ## OpenTether shows connected, but no websites load
 
