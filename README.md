@@ -1,10 +1,11 @@
-# OpenTether Windows Launcher
+# Android USB Reverse Tether for Windows
 
-**Share your Windows PC's wired internet with your Android phone over a USB cable, in one click.**
+**Share your Windows 11 PC's internet with any Android phone over a USB cable, in one click.**
+No Wi-Fi hotspot, no root, no phone-specific setup.
 
 Built on [**OpenTether**](https://github.com/pyd-07/NetcoN-OpenTether) by [pyd-07](https://github.com/pyd-07),
-which does the actual tunnelling. This project is a Windows launcher around it: it installs everything,
-wires up the USB connection, starts OpenTether, and helps you fix things when they break.
+which does the actual tunnelling. This project is a one-click Windows launcher around it: it installs
+everything, wires up the USB connection, starts OpenTether, and helps you fix things when they break.
 
 ## Why this exists
 
@@ -29,8 +30,9 @@ Next time it's the same steps 2–4, and they take a few seconds.
 
 ## Requirements
 
-- Windows 10 (21H2 or newer) or Windows 11, 64-bit Intel/AMD PC with virtualisation enabled (needed for WSL2)
-- Any Android phone with USB debugging
+- Windows 11, 64-bit Intel/AMD PC with virtualisation enabled (needed for WSL2).
+  Windows 10 21H2+ should work too but is untested.
+- Any Android phone (Android 8+) with USB debugging. No root needed.
 - Admin rights on the PC for the first run (installing WSL and usbipd-win, sharing the USB device)
 
 ## What happens on first run
