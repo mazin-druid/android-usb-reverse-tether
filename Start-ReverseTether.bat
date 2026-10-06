@@ -1,11 +1,14 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
+rem Errors are checked with "!errorlevel! neq 0", not "if errorlevel 1": wsl.exe fails with
+rem NEGATIVE codes (e.g. -1 for a missing distro), which "if errorlevel 1" treats as success.
 title PC to Android - Reverse Tether
 rem wsl starts in the current Windows folder, so bundled files next to this .bat are visible to it.
 pushd "%~dp0"
 
 set "USBIPD=C:\Program Files\usbipd-win\usbipd.exe"
-set "DISTRO=Ubuntu"
+rem WSL distro to use. Empty = auto-detect Ubuntu, Ubuntu-24.04, Ubuntu-22.04 or Ubuntu-20.04.
+set "DISTRO="
 set "VER=v0.9.5-beta.1"
 set "RELAY=OpenTether-%VER%-linux-amd64"
 set "APK=OpenTether-%VER%-android.apk"
@@ -36,25 +39,29 @@ if not exist "%USBIPD%" (
 echo       usbipd-win OK.
 echo.
 
-echo [2/9] Checking WSL %DISTRO%...
-wsl -d %DISTRO% -- true <nul >nul 2>&1
-if errorlevel 1 (
-    echo       %DISTRO% not found. Installing WSL + %DISTRO%...
+echo [2/9] Checking WSL Ubuntu...
+rem Fresh installs are often named Ubuntu-24.04 etc., so use the first one that exists.
+if not defined DISTRO for %%D in (Ubuntu Ubuntu-24.04 Ubuntu-22.04 Ubuntu-20.04) do if not defined DISTRO (
+    wsl -d %%D -- true <nul >nul 2>&1
+    if !errorlevel! equ 0 set "DISTRO=%%D"
+)
+if not defined DISTRO (
+    echo       Ubuntu not found. Installing WSL + Ubuntu...
     echo       Create your Linux username/password when asked.
-    wsl --install -d %DISTRO%
+    wsl --install -d Ubuntu
     echo.
     echo [ACTION REQUIRED] If Windows asks for a restart, restart.
     echo Then run this launcher again.
     pause
     exit /b 1
 )
-echo       %DISTRO% is running.
+echo       Using WSL distro !DISTRO!.
 echo.
 
 echo [3/9] Checking Linux tools (adb, lsusb, wget)...
 rem Not redirected: apt may ask for your Ubuntu sudo password here.
 wsl -d %DISTRO% -- bash -lc "command -v adb && command -v lsusb && command -v wget || (sudo apt-get update && sudo apt-get install -y adb usbutils wget)" >nul
-if errorlevel 1 (
+if !errorlevel! neq 0 (
     echo [ERROR] Could not install adb/usbutils/wget in %DISTRO%.
     pause
     exit /b 1
@@ -65,7 +72,7 @@ echo.
 echo [4/9] Checking OpenTether relay...
 rem Uses ~/%RELAY% if present, else a copy next to this .bat, else downloads it.
 wsl -d %DISTRO% -- bash -lc "test -x ~/%RELAY% || { cp %RELAY% ~/ 2>/dev/null || wget -q --show-progress %BASE_URL%/%RELAY% -O ~/%RELAY%; } && chmod +x ~/%RELAY%" <nul
-if errorlevel 1 (
+if !errorlevel! neq 0 (
     echo [ERROR] Could not get the OpenTether relay.
     pause
     exit /b 1
@@ -100,7 +107,7 @@ echo [6/9] Connecting USB to WSL...
 if "!USBSTATE!"=="Not shared" (
     echo       Requesting Administrator permission to share it...
     powershell -NoProfile -Command "$p = Start-Process -FilePath '%USBIPD%' -ArgumentList 'bind','--busid','!BUSID!','--force' -Verb RunAs -Wait -PassThru; exit $p.ExitCode"
-    if errorlevel 1 (
+    if !errorlevel! neq 0 (
         echo [ERROR] Could not share the USB device.
         pause
         exit /b 1
@@ -109,7 +116,7 @@ if "!USBSTATE!"=="Not shared" (
 rem A plain attach is lost whenever the phone resets USB (it falls back to "Shared"
 rem and ADB loses it). --auto-attach stays running and re-attaches it every time.
 powershell -NoProfile -Command "if (Get-CimInstance Win32_Process -Filter 'Name=''usbipd.exe''' | ? CommandLine -match 'auto-attach') {exit 0}; exit 1"
-if errorlevel 1 (
+if !errorlevel! neq 0 (
     echo       Starting USB auto-attach in a minimized window ^(keep it open^)...
     start "USB Auto-Attach" /min "%USBIPD%" attach --wsl --busid !BUSID! --auto-attach
 ) else (
@@ -119,7 +126,7 @@ set /a tries=0
 :WAITUSB
 set /a tries+=1
 wsl -d %DISTRO% -- bash -lc "lsusb | grep -q '!VIDPID!'" <nul >nul 2>&1
-if not errorlevel 1 goto USBOK
+if !errorlevel! equ 0 goto USBOK
 if !tries! GEQ 20 (
     echo [ERROR] Phone did not appear inside WSL.
     pause
@@ -133,7 +140,7 @@ echo.
 
 echo [7/9] Checking ADB authorization...
 call :ADB_OK
-if errorlevel 1 (
+if !errorlevel! neq 0 (
     echo.
     echo [ACTION REQUIRED ON PHONE]
     echo Unlock the phone and accept the USB debugging prompt.
@@ -141,7 +148,7 @@ if errorlevel 1 (
     pause
     call :ADB_OK
 )
-if errorlevel 1 (
+if !errorlevel! neq 0 (
     echo [ERROR] ADB is not authorized.
     wsl -d %DISTRO% -- adb devices
     pause
@@ -152,11 +159,11 @@ echo.
 
 echo [8/9] Checking OpenTether app on the phone...
 wsl -d %DISTRO% -- adb shell pm path %APP_PKG% <nul >nul 2>&1
-if errorlevel 1 (
+if !errorlevel! neq 0 (
     echo       Not installed. Installing APK...
     rem APK search order: next to this .bat, then ~ in Ubuntu, else download.
     wsl -d %DISTRO% -- bash -lc "apk=$(ls %APK% ~/%APK% 2>/dev/null | head -n1); [ -z $apk ] && { wget -q --show-progress %BASE_URL%/%APK% -O ~/%APK% && apk=~/%APK%; }; adb install -r $apk" <nul
-    if errorlevel 1 (
+    if !errorlevel! neq 0 (
         echo [ERROR] Could not install the OpenTether app.
         pause
         exit /b 1
@@ -166,7 +173,7 @@ echo       OpenTether app OK.
 echo.
 
 wsl -d %DISTRO% -- pgrep -f "%RELAY%" <nul >nul 2>&1
-if not errorlevel 1 (
+if !errorlevel! equ 0 (
     echo       Relay is already running.
 ) else (
     echo       Starting OpenTether relay in a new window ^(enter your Ubuntu sudo password there^)...
@@ -178,7 +185,7 @@ echo.
 echo       Torrent mode: some ISPs block BitTorrent. It routes ONLY the phone's
 echo       traffic through free Cloudflare WARP inside Ubuntu. Windows is untouched.
 wsl -d %DISTRO% -- ip link show wg-ot <nul >nul 2>&1
-if not errorlevel 1 (
+if !errorlevel! equ 0 (
     echo       Torrent mode is already on.
 ) else (
     set "TORRENT="
@@ -204,7 +211,7 @@ pause >nul
 echo.
 echo Checking tunnel...
 wsl -d %DISTRO% -- ip link show ot0 <nul >nul 2>&1
-if errorlevel 1 (
+if !errorlevel! neq 0 (
     echo [WARNING] ot0 was not detected.
     echo Check the OpenTether Relay window.
     pause
@@ -255,13 +262,13 @@ exit /b 0
 :TORRENT_ON
 rem Free WARP profile in ~/warp (no sudo, made once), then torrent-vpn.sh from this folder.
 wsl -d %DISTRO% -- bash -lc "mkdir -p ~/warp && cd ~/warp && { test -x wgcf || { wget -q %WGCF_URL% -O wgcf && chmod +x wgcf; }; } && { test -f wgcf-account.toml || ./wgcf register --accept-tos >/dev/null; } && { test -f wgcf-profile.conf || ./wgcf generate >/dev/null; }" <nul
-if errorlevel 1 (
+if !errorlevel! neq 0 (
     echo [WARNING] Could not create the WARP profile. Torrent mode skipped.
     exit /b 0
 )
 echo       Enter your Ubuntu sudo password if asked...
 wsl -d %DISTRO% -- sudo bash torrent-vpn.sh up
-if errorlevel 1 echo [WARNING] Torrent mode failed. Normal internet still works.
+if !errorlevel! neq 0 echo [WARNING] Torrent mode failed. Normal internet still works.
 exit /b 0
 
 :ADB_OK

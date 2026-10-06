@@ -96,8 +96,10 @@ the carrier network as normal.)
 
 - `Ubuntu could not be started` after installing: restart Windows, run the launcher again.
 - "Virtualisation not enabled": enable **Intel VT-x / AMD-V (SVM)** in the PC's BIOS/UEFI.
-- Different distro name: the launcher expects one named `Ubuntu` (`wsl -l -v` to check). Edit `DISTRO=` at the top of
-  `Start-ReverseTether.bat` if yours is different.
+- "There is no distribution with the supplied name": the launcher auto-detects `Ubuntu`, `Ubuntu-24.04`,
+  `Ubuntu-22.04` and `Ubuntu-20.04`. If yours has another name (`wsl -l -v` lists them), set `DISTRO=<name>`
+  at the top of `Start-ReverseTether.bat` and `Diagnose-ReverseTether.bat`. The `wsl -d Ubuntu ...` commands in
+  these docs then need that name too.
 
 ## Reset everything (nothing is permanent, so this is safe)
 
