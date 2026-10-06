@@ -153,7 +153,7 @@ if !tries! GEQ 20 (
     pause
     exit /b 1
 )
-timeout /t 1 /nobreak >nul
+ping -n 2 127.0.0.1 >nul
 goto WAITUSB
 :USBOK
 echo %OK% Phone is visible in Linux
@@ -208,20 +208,7 @@ if !errorlevel! equ 0 (
 ) else (
     echo %DO% Starting the relay in a new window. %ACT%Enter your Ubuntu password there.%N%
     start "OpenTether Relay" wsl -d %DISTRO% -- bash -lc "cd ~ && sudo ./%RELAY%; echo Relay exited.; read -p 'Press Enter to close'"
-    timeout /t 3 /nobreak >nul
-)
-echo.
-
-echo  %STEP%[ + ]%N% %HI%Torrent mode%N% %DIM%(optional)%N%
-echo   %DIM%Some networks block BitTorrent. Torrent mode routes ONLY the phone's traffic%N%
-echo   %DIM%through free Cloudflare WARP inside Ubuntu. Windows is untouched.%N%
-wsl -d %DISTRO% -- ip link show wg-ot <nul >nul 2>&1
-if !errorlevel! equ 0 (
-    echo %OK% Torrent mode is on
-) else (
-    set "TORRENT="
-    set /p "TORRENT=  Turn on torrent mode? [y/N]: "
-    if /I "!TORRENT!"=="y" call :TORRENT_ON
+    ping -n 4 127.0.0.1 >nul
 )
 echo.
 
@@ -240,15 +227,23 @@ echo   Press any key here %HI%after%N% the VPN is running...
 pause >nul
 
 echo.
-echo %DO% Checking tunnel...
-wsl -d %DISTRO% -- ip link show ot0 <nul >nul 2>&1
-if !errorlevel! neq 0 (
-    echo %WRN% Tunnel interface ot0 was not found. Check the OpenTether Relay window.
-    echo   %DIM%Still stuck? Run Diagnose-ReverseTether.bat%N%
-    pause
-    exit /b 1
+echo %DO% Waiting for the phone to connect to the relay...
+rem ot0 exists as soon as the relay runs, so check for the phone's actual session instead.
+rem (Waits use ping, not timeout: timeout aborts when input is redirected.)
+set /a tries=0
+:WAITVPN
+set /a tries+=1
+call :STATUS
+if "!CONNECTED!"=="1" goto VPNOK
+if !tries! LSS 15 (
+    ping -n 2 127.0.0.1 >nul
+    goto WAITVPN
 )
+echo %WRN% The phone has not connected yet. In OpenTether tap %HI%STOP%N%, then %HI%START VPN%N%.
+echo   %DIM%The control panel below shows when it connects. Still stuck? Run Diagnose-ReverseTether.bat%N%
+goto PANEL
 
+:VPNOK
 echo.
 echo(  %WIN%                                                        %N%
 echo(  %WIN%           REVERSE TETHERING ACTIVE                     %N%
@@ -257,9 +252,30 @@ echo.
 echo   Your phone is now using this PC's internet.
 echo   Keep these windows open: %HI%OpenTether Relay%N% and %HI%USB Auto-Attach%N%.
 echo   %DIM%Problems? Run Diagnose-ReverseTether.bat or see docs\TROUBLESHOOTING.md%N%
+
+rem Control panel: stays open so torrent mode can be switched on/off.
+:PANEL
+set "EMPTY=0"
+:MENU
+call :STATUS
 echo.
-pause
-exit /b 0
+echo   %STEP%CONTROL PANEL%N%
+echo     Phone tunnel : !PH!
+echo     Torrent mode : !TS!
+echo   %DIM%  Torrent mode routes only the phone's traffic through free Cloudflare WARP,%N%
+echo   %DIM%  for networks that block BitTorrent. Windows is untouched.%N%
+echo.
+echo     %HI%T%N%  Turn torrent mode !TNEXT!      %HI%R%N%  Refresh status      %HI%Q%N%  Close this window
+set "CH="
+set /p "CH=  Choose [T/R/Q]: "
+rem Enter alone just refreshes; many empty answers in a row means input has closed, so stop.
+if defined CH (set "EMPTY=0") else set /a EMPTY+=1
+if !EMPTY! GEQ 20 exit /b 0
+if /I "!CH!"=="Q" exit /b 0
+if /I "!CH!"=="T" (
+    if "!TNEXT!"=="OFF" (call :TORRENT_OFF) else (call :TORRENT_ON)
+)
+goto MENU
 
 rem ---------------------------------------------------------------
 rem Sets BUSID, VIDPID, NAME and USBSTATE (Not shared / Shared / Attached).
@@ -306,6 +322,19 @@ if !errorlevel! neq 0 (
 ) else (
     echo %OK% Torrent mode is on
 )
+exit /b 0
+
+:TORRENT_OFF
+echo %DO% Turning off torrent mode. %ACT%Enter your Ubuntu password if asked.%N%
+wsl -d %DISTRO% -- sudo bash torrent-vpn.sh down
+exit /b 0
+
+:STATUS
+rem Sets CONNECTED/PH (phone session on the relay), TS (torrent mode) and TNEXT (what T switches it to).
+wsl -d %DISTRO% -- bash -lc "ss -tn | grep -q ':8765'" <nul >nul 2>&1
+if !errorlevel! equ 0 (set "CONNECTED=1" & set "PH=%GOOD%connected%N%") else (set "CONNECTED=0" & set "PH=%WARN%not connected - tap START VPN in OpenTether%N%")
+wsl -d %DISTRO% -- ip link show wg-ot <nul >nul 2>&1
+if !errorlevel! equ 0 (set "TS=%GOOD%ON%N%" & set "TNEXT=OFF") else (set "TS=%DIM%OFF%N%" & set "TNEXT=ON")
 exit /b 0
 
 :APP_OK
