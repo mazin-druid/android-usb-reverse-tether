@@ -158,16 +158,28 @@ echo       ADB authorized.
 echo.
 
 echo [8/9] Checking OpenTether app on the phone...
-wsl -d %DISTRO% -- adb shell pm path %APP_PKG% <nul >nul 2>&1
+call :APP_OK
 if !errorlevel! neq 0 (
-    echo       Not installed. Installing APK...
+    echo       Not installed. Installing it - WATCH THE PHONE and approve any
+    echo       install or Play Protect prompt...
     rem APK search order: next to this .bat, then ~ in Ubuntu, else download.
-    wsl -d %DISTRO% -- bash -lc "apk=$(ls %APK% ~/%APK% 2>/dev/null | head -n1); [ -z $apk ] && { wget -q --show-progress %BASE_URL%/%APK% -O ~/%APK% && apk=~/%APK%; }; adb install -r $apk" <nul
-    if !errorlevel! neq 0 (
-        echo [ERROR] Could not install the OpenTether app.
-        pause
-        exit /b 1
-    )
+    rem --exec matters: without it WSL's shell expands $apk and $(...) to nothing first.
+    wsl -d %DISTRO% --exec bash -lc "apk=$(ls %APK% ~/%APK% 2>/dev/null | head -n1); [ -z $apk ] && { wget -q --show-progress %BASE_URL%/%APK% -O ~/%APK% && apk=~/%APK%; }; adb install -r $apk" <nul
+    call :APP_OK
+)
+if !errorlevel! neq 0 (
+    echo.
+    echo [ACTION REQUIRED] Install the OpenTether app on the phone manually:
+    echo   %BASE_URL%/%APK%
+    echo   Open that link on the phone ^(or copy the APK over^), install it,
+    echo   then press any key here.
+    pause
+    call :APP_OK
+)
+if !errorlevel! neq 0 (
+    echo [ERROR] The OpenTether app is still not installed.
+    pause
+    exit /b 1
 )
 echo       OpenTether app OK.
 echo.
@@ -270,6 +282,11 @@ echo       Enter your Ubuntu sudo password if asked...
 wsl -d %DISTRO% -- sudo bash torrent-vpn.sh up
 if !errorlevel! neq 0 echo [WARNING] Torrent mode failed. Normal internet still works.
 exit /b 0
+
+:APP_OK
+rem Check pm's output, not adb's exit code: older adb versions don't pass the phone's exit code back.
+wsl -d %DISTRO% -- bash -lc "adb shell pm path %APP_PKG% | grep -q package:" <nul >nul 2>&1
+exit /b
 
 :ADB_OK
 rem findstr's $ only matches before CR; Linux output is LF-only, so grep in WSL.
