@@ -134,6 +134,12 @@ if "!USBSTATE!"=="Not shared" (
         exit /b 1
     )
 )
+rem A Windows adb server (Android Studio, platform-tools, phone suites) grabs the phone,
+rem and attaching it to WSL then fails with "Device busy". Stop it first.
+tasklist /fi "imagename eq adb.exe" 2>nul | find /i "adb.exe" >nul && (
+    echo %DO% Stopping the Windows adb server so Linux can use the phone...
+    taskkill /f /im adb.exe >nul 2>&1
+)
 rem A plain attach is lost whenever the phone resets USB (it falls back to "Shared"
 rem and ADB loses it). --auto-attach stays running and re-attaches it every time.
 powershell -NoProfile -Command "if (Get-CimInstance Win32_Process -Filter 'Name=''usbipd.exe''' | ? CommandLine -match 'auto-attach') {exit 0}; exit 1"

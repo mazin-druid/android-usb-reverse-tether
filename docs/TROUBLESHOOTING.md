@@ -50,7 +50,11 @@ No prompt? Developer options → **Revoke USB debugging authorizations**, then r
 - Approve the **Administrator** prompt (needed once per phone to "share" it).
 - If the phone shows `Shared` but never `Attached`, run in an Administrator terminal:
   `usbipd bind --busid <BUSID> --force`, then rerun the launcher.
-- Another program may hold the phone (Android Studio, phone-maker PC suites). Close it and replug.
+- USB Auto-Attach keeps printing `Failed to attach device`, or attach says **`Device busy (exported)`** /
+  "the device appears to be used by Windows": a Windows program holds the phone, most often a Windows
+  `adb.exe` (Android Studio, platform-tools, scrcpy, phone-maker PC suites). The launcher stops `adb.exe`
+  automatically; if it comes back, close the program that starts it, or run `taskkill /f /im adb.exe`.
+  Auto-Attach then succeeds on its next retry.
 
 ## Relay window shows a password prompt / "Relay exited"
 
