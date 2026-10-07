@@ -61,8 +61,8 @@ After setup the launcher window stays open as a control panel:
 
 | Key | Does |
 |---|---|
-| **S** | Send files to the phone: pick one or more files; they go to the phone's **Download** folder |
-| **G** | Get files from the phone: pick from the 15 newest files in its **Download** folder (or **A** for all); they're saved to **Downloads\From Phone** on the PC |
+| **S** | Opens the **Send files to phone** window: add files/folders (buttons or drag-and-drop from Explorer), pick the phone folder, choose **Copy** or **Move** |
+| **G** | Opens the **Get files from phone** window: browse a phone folder (Download, Camera, Pictures, Movies, Music, Documents), select several files (Ctrl/Shift-click or *Select all*), choose where to save on the PC (default **Downloads\From Phone**) and **Copy** or **Move** |
 | **T** | Turn torrent mode on/off (asks for your Ubuntu password) |
 | **R** / Enter | Refresh status (is the phone connected, is torrent mode on) |
 | **Q** | Close the panel (tethering keeps running) |
@@ -70,6 +70,7 @@ After setup the launcher window stays open as a control panel:
 Transfers go straight over the USB link with `adb` at roughly **30–40 MB/s** (measured on a OnePlus 13:
 31 MB/s to the phone, 37 MB/s back), much faster than going through the network. While tethering, the
 phone is attached to Linux, so it doesn't show up as a drive in Windows Explorer; use S/G instead.
+**Move** deletes each original only after that item has transferred successfully.
 
 ## Phone settings that matter
 
@@ -131,6 +132,7 @@ See **[TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)** for every known problem an
 | `Start-ReverseTether.bat` | The launcher |
 | `Diagnose-ReverseTether.bat` + `diagnose.sh` | Read-only health check → `diagnostics.txt` |
 | `torrent-vpn.sh` | Optional torrent mode (phone traffic through Cloudflare WARP) |
+| `transfer.ps1` | File transfer window opened by S/G in the control panel |
 | `docs/TROUBLESHOOTING.md` | Problems and fixes |
 
 ## What it does NOT touch

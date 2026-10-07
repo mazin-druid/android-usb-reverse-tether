@@ -1,3 +1,4 @@
 # cmd.exe misreads labels in LF batch files; bash breaks on CRLF scripts.
 *.bat text eol=crlf
 *.sh  text eol=lf
+*.ps1 text eol=crlf

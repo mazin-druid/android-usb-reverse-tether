@@ -287,53 +287,16 @@ if /I "!CH!"=="T" (
 goto MENU
 
 rem ---------------------------------------------------------------
-rem File transfer runs straight over the USB link with adb (about 30-40 MB/s),
-rem much faster than going through the network tunnel. --exec passes paths with
-rem spaces to Linux untouched.
+rem File transfer window (transfer.ps1): multi-select, copy or move, straight over USB
+rem with adb at about 30-40 MB/s, much faster than going through the network tunnel.
 :SEND
-echo %DO% Choose the files to send in the window that opens...
-set "SENT=0"
-for /f "usebackq delims=" %%F in (`powershell -NoProfile -STA -Command "Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.OpenFileDialog; $d.Multiselect = $true; $d.Title = 'Send to phone'; if ($d.ShowDialog() -eq 'OK') { $d.FileNames }"`) do (
-    for /f "usebackq delims=" %%W in (`wsl -d %DISTRO% --exec wslpath -u "%%~F" ^<nul`) do (
-        echo %DO% Sending "%%~nxF"
-        wsl -d %DISTRO% --exec adb push "%%W" /sdcard/Download/ <nul
-        if !errorlevel! equ 0 (set /a SENT+=1) else echo %ERR% Could not send "%%~nxF"
-    )
-)
-if !SENT! equ 0 (echo %WRN% Nothing sent.) else (echo %OK% Sent !SENT! file^(s^) to the phone's %HI%Download%N% folder)
+echo %DO% Opening the "Send files to phone" window...
+powershell -NoProfile -STA -ExecutionPolicy Bypass -File "%~dp0transfer.ps1" -Mode Send -Distro %DISTRO%
 exit /b 0
 
 :GET
-rem Counter is FN, not n: batch names ignore case, so n would overwrite N (the colour reset).
-set "DEST=%USERPROFILE%\Downloads\From Phone"
-echo   Newest files in the phone's Download folder:
-set "FN=0"
-for /f "usebackq delims=" %%L in (`wsl -d %DISTRO% --exec bash -lc "adb shell ls -t /sdcard/Download | head -n 15" ^<nul`) do (
-    set /a FN+=1
-    set "F!FN!=%%L"
-    echo     %HI%!FN!%N%. %%L
-)
-if !FN! equ 0 (
-    echo %WRN% The phone's Download folder is empty or not readable.
-    exit /b 0
-)
-set "PICKF="
-set /p "PICKF=  Number to copy to the PC (A = all of them, Enter = cancel): "
-if not defined PICKF exit /b 0
-if not exist "%DEST%" mkdir "%DEST%"
-for /f "usebackq delims=" %%W in (`wsl -d %DISTRO% --exec wslpath -u "%DEST%" ^<nul`) do set "DESTW=%%W"
-if /I "!PICKF!"=="A" (
-    for /l %%i in (1,1,!FN!) do wsl -d %DISTRO% --exec adb pull "/sdcard/Download/!F%%i!" "!DESTW!/" <nul
-) else (
-    if not defined F!PICKF! (
-        echo %WRN% No file number !PICKF!.
-        exit /b 0
-    )
-    call set "NAMEIN=%%F!PICKF!%%"
-    wsl -d %DISTRO% --exec adb pull "/sdcard/Download/!NAMEIN!" "!DESTW!/" <nul
-)
-echo %OK% Saved to %HI%%DEST%%N%
-start "" explorer "%DEST%"
+echo %DO% Opening the "Get files from phone" window...
+powershell -NoProfile -STA -ExecutionPolicy Bypass -File "%~dp0transfer.ps1" -Mode Get -Distro %DISTRO%
 exit /b 0
 
 rem ---------------------------------------------------------------
