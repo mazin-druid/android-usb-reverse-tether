@@ -21,20 +21,23 @@ $PhoneFolders = [ordered]@{
 # stdin closed, so wsl can't sit waiting on the launcher's console, and keeps the window
 # responsive while it runs. Sets $script:WslCode to the exit code; returns output lines.
 $script:WslCode = 0
-$script:BusyText = $null
-function Invoke-Wsl {
+$script:OnTick = $null   # called while a transfer runs, to update the progress bar
+function Start-WslProcess($argv) {
     $psi = New-Object System.Diagnostics.ProcessStartInfo 'wsl.exe'
     # Quote each argument ourselves: Windows PowerShell 5.1 mangles embedded quotes otherwise.
     # wsl's own options must stay unquoted; only the Linux command's arguments are quoted.
-    $psi.Arguments = "-d $Distro --exec " + (($args | ForEach-Object { '"' + ("$_" -replace '(\\*)"', '$1$1\"' -replace '(\\+)$', '$1$1') + '"' }) -join ' ')
+    $psi.Arguments = "-d $Distro --exec " + (($argv | ForEach-Object { '"' + ("$_" -replace '(\\*)"', '$1$1\"' -replace '(\\+)$', '$1$1') + '"' }) -join ' ')
     $psi.UseShellExecute = $false; $psi.CreateNoWindow = $true
     $psi.RedirectStandardInput = $true; $psi.RedirectStandardOutput = $true; $psi.RedirectStandardError = $true
     $p = [System.Diagnostics.Process]::Start($psi)
     $p.StandardInput.Close()
+    $p
+}
+function Invoke-Wsl {
+    $p = Start-WslProcess $args
     $out = $p.StandardOutput.ReadToEndAsync(); $err = $p.StandardError.ReadToEndAsync()
-    $sw = [System.Diagnostics.Stopwatch]::StartNew()
     while (-not $p.HasExited) {
-        if ($script:BusyText -and $status) { $status.Text = "$script:BusyText  ($([int]$sw.Elapsed.TotalSeconds)s)" }
+        if ($script:OnTick) { & $script:OnTick }
         [System.Windows.Forms.Application]::DoEvents()
         Start-Sleep -Milliseconds 100
     }
@@ -42,6 +45,63 @@ function Invoke-Wsl {
     $script:WslCode = $p.ExitCode
     ($out.Result + $err.Result) -split "`r?`n" | Where-Object { $_ -ne '' }
 }
+# Short blocking call for the once-a-second size check (no event pumping, so no re-entry).
+function Invoke-WslQuick {
+    $p = Start-WslProcess $args
+    $o = $p.StandardOutput.ReadToEnd(); $p.WaitForExit(5000) | Out-Null
+    $o
+}
+
+# ---------- byte-accurate progress + time left ----------
+# Before a transfer: TotalBytes = sum of all selected items. While an item copies, Measure
+# (a scriptblock) returns how many bytes of it have arrived at the destination.
+function Start-Progress([long]$total) {
+    $script:TotalBytes = [math]::Max(1, $total); $script:DoneBytes = 0
+    $script:XferSw = [System.Diagnostics.Stopwatch]::StartNew()
+    $script:PollSw = [System.Diagnostics.Stopwatch]::StartNew()
+    $script:Samples = New-Object System.Collections.Generic.List[object]
+    $progress.Maximum = 1000; $progress.Value = 0
+    $script:OnTick = {
+        if ($script:PollSw.ElapsedMilliseconds -lt 800) { return }
+        $script:PollSw.Restart()
+        $cur = [long](& $script:Measure)
+        Update-Progress ($script:DoneBytes + [math]::Min($cur, $script:CurSize))
+    }
+}
+function Format-Eta([double]$s) {
+    if ($s -lt 1) { 'almost done' } elseif ($s -lt 60) { "about $([int][math]::Ceiling($s))s left" }
+    elseif ($s -lt 3600) { 'about {0}m {1:D2}s left' -f [int][math]::Floor($s / 60), ([int]$s % 60) }
+    else { 'about {0}h {1:D2}m left' -f [int][math]::Floor($s / 3600), ([int][math]::Floor($s / 60) % 60) }
+}
+function Update-Progress([long]$done) {
+    $t = $script:TotalBytes
+    $progress.Value = [int][math]::Min(1000, 1000 * $done / $t)
+    # Speed over the last ~6 s, so the estimate follows the real current speed.
+    $now = $script:XferSw.Elapsed.TotalSeconds
+    $script:Samples.Add(@($now, $done))
+    while ($script:Samples.Count -gt 2 -and ($now - $script:Samples[0][0]) -gt 6) { $script:Samples.RemoveAt(0) }
+    $first = $script:Samples[0]
+    $rate = if (($now - $first[0]) -ge 1.5) { ($done - $first[1]) / ($now - $first[0]) } else { 0 }
+    $eta = if ($rate -gt 0) { Format-Eta (($t - $done) / $rate) } else { 'estimating time left...' }
+    $speed = if ($rate -gt 0) { "$(Format-Size ([long]$rate))/s  -  " } else { '' }
+    $status.Text = "$script:ItemText`n$([int](100 * $done / $t))%  -  $(Format-Size $done) of $(Format-Size $t)  -  $speed$eta"
+}
+function Stop-Progress { $script:OnTick = $null; $progress.Value = $progress.Maximum }
+
+# Bytes of a file or folder on the PC (0 if it doesn't exist yet).
+function Get-LocalSize([string]$path) {
+    if (Test-Path -LiteralPath $path -PathType Leaf) { return (Get-Item -LiteralPath $path).Length }
+    if (Test-Path -LiteralPath $path) {
+        return [long](Get-ChildItem -LiteralPath $path -Recurse -File -Force -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum
+    }
+    0
+}
+# Bytes of a file or folder on the phone; $quoted comes from Quote-Sh.
+function Get-PhoneSize([string]$quoted) {
+    $o = Invoke-WslQuick adb shell "du -sk $quoted 2>/dev/null"
+    if ("$o" -match '^\s*(\d+)') { [long]$matches[1] * 1024 } else { 0 }
+}
+$script:FileSize = @{}
 function Quote-Sh([string]$s) { "'" + $s.Replace("'", "'\''") + "'" }  # for adb shell, which re-joins args
 function To-WslPath([string]$p) { (Invoke-Wsl wslpath -u $p | Select-Object -First 1).ToString().Trim() }
 function Format-Size([long]$b) {
@@ -156,19 +216,25 @@ if ($Mode -eq 'Send') {
         $target = $PhoneFolders[$dest.SelectedItem]
         Set-Busy $true
         [void](Invoke-Wsl adb shell "mkdir -p $(Quote-Sh $target)")
-        $progress.Maximum = $items.Count; $progress.Value = 0; $ok = 0; $failed = @()
+        $sizes = @{}; foreach ($it in $items) { $sizes[$it.Tag] = Get-LocalSize $it.Tag }
+        Start-Progress ($sizes.Values | Measure-Object -Sum).Sum
+        $ok = 0; $failed = @(); $n = 0
         foreach ($it in $items) {
-            $script:BusyText = "Sending $($it.Text)  ($($progress.Value + 1) of $($items.Count))..."
-            [System.Windows.Forms.Application]::DoEvents()
+            $n++
+            $script:ItemText = "Sending $($it.Text)  ($n of $($items.Count))"
+            $script:CurSize = $sizes[$it.Tag]
+            $onPhone = Quote-Sh "$target/$($it.Text)"
+            $script:Measure = { Get-PhoneSize $onPhone }.GetNewClosure()
+            Update-Progress $script:DoneBytes
             [void](Invoke-Wsl adb push (To-WslPath $it.Tag) "$target/")
+            $script:DoneBytes += $script:CurSize
             if ($script:WslCode -eq 0) {
                 $ok++
                 if ($rbMove.Checked) { Remove-Item -LiteralPath $it.Tag -Recurse -Force -ErrorAction SilentlyContinue }
                 $list.Items.Remove($it)
             } else { $failed += $it.Text }
-            $progress.Value++
         }
-        $script:BusyText = $null
+        Stop-Progress
         $verb = if ($rbMove.Checked) { 'Moved' } else { 'Copied' }
         $status.Text = "$verb $ok item(s) to the phone's $($dest.SelectedItem) folder." +
             $(if ($failed) { "  Failed: $($failed -join ', ')" } else { '' })
@@ -200,6 +266,7 @@ else {
             [void]$it.SubItems.Add($(if ($isDir) { 'folder' } else { Format-Size ([long]$p[1]) }))
             [void]$it.SubItems.Add([DateTimeOffset]::FromUnixTimeSeconds([long]$p[2]).LocalDateTime.ToString('yyyy-MM-dd HH:mm'))
             $it.Tag = "$dir/$($p[3])"; [void]$list.Items.Add($it)
+            if (-not $isDir) { $script:FileSize[$it.Tag] = [long]$p[1] }
         }
         if ($list.Items.Count -eq 0) { $status.Text = "No files in $($src.SelectedItem) (or the phone is not connected)." }
         else { $status.Text = "Select files (Ctrl/Shift-click). Save to: $destPath" }
@@ -219,18 +286,26 @@ else {
         Set-Busy $true
         New-Item -ItemType Directory -Force -Path $destPath | Out-Null
         $destW = To-WslPath $destPath
-        $progress.Maximum = $items.Count; $progress.Value = 0; $ok = 0; $failed = @()
+        $script:ItemText = 'Measuring...'
+        # Folder sizes on the phone aren't in the listing, so measure them now.
+        $sizes = @{}; foreach ($it in $items) { $sizes[$it.Tag] = if ($script:FileSize.ContainsKey($it.Tag)) { $script:FileSize[$it.Tag] } else { Get-PhoneSize (Quote-Sh $it.Tag) } }
+        Start-Progress ($sizes.Values | Measure-Object -Sum).Sum
+        $ok = 0; $failed = @(); $n = 0
         foreach ($it in $items) {
-            $script:BusyText = "Copying $($it.Text)  ($($progress.Value + 1) of $($items.Count))..."
-            [System.Windows.Forms.Application]::DoEvents()
+            $n++
+            $script:ItemText = "Copying $($it.Text)  ($n of $($items.Count))"
+            $script:CurSize = $sizes[$it.Tag]
+            $onPc = Join-Path $destPath $it.Text
+            $script:Measure = { Get-LocalSize $onPc }.GetNewClosure()
+            Update-Progress $script:DoneBytes
             [void](Invoke-Wsl adb pull $it.Tag "$destW/")
+            $script:DoneBytes += $script:CurSize
             if ($script:WslCode -eq 0) {
                 $ok++
                 if ($rbMove.Checked) { [void](Invoke-Wsl adb shell "rm -rf $(Quote-Sh $it.Tag)"); $list.Items.Remove($it) }
             } else { $failed += $it.Text }
-            $progress.Value++
         }
-        $script:BusyText = $null
+        Stop-Progress
         $verb = if ($rbMove.Checked) { 'Moved' } else { 'Copied' }
         $status.Text = "$verb $ok item(s) to $destPath" + $(if ($failed) { "  Failed: $($failed -join ', ')" } else { '' })
         Set-Busy $false
