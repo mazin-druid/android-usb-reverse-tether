@@ -55,8 +55,8 @@ function Invoke-WslQuick {
 # ---------- byte-accurate progress + time left ----------
 # Before a transfer: TotalBytes = sum of all selected items. While an item copies, Measure
 # (a scriptblock) returns how many bytes of it have arrived at the destination.
-function Start-Progress([long]$total) {
-    $script:TotalBytes = [math]::Max(1, $total); $script:DoneBytes = 0
+function Start-Progress([double]$total) {   # double in: Measure-Object sums are doubles; >2 GB must not hit Int32
+    $script:TotalBytes = [math]::Max([long]1, [long]$total); $script:DoneBytes = 0
     $script:XferSw = [System.Diagnostics.Stopwatch]::StartNew()
     $script:PollSw = [System.Diagnostics.Stopwatch]::StartNew()
     $script:Samples = New-Object System.Collections.Generic.List[object]
@@ -65,7 +65,7 @@ function Start-Progress([long]$total) {
         if ($script:PollSw.ElapsedMilliseconds -lt 800) { return }
         $script:PollSw.Restart()
         $cur = [long](& $script:Measure)
-        Update-Progress ($script:DoneBytes + [math]::Min($cur, $script:CurSize))
+        Update-Progress ($script:DoneBytes + [math]::Min([long]$cur, [long]$script:CurSize))
     }
 }
 function Format-Eta([double]$s) {
@@ -222,7 +222,7 @@ if ($Mode -eq 'Send') {
         foreach ($it in $items) {
             $n++
             $script:ItemText = "Sending $($it.Text)  ($n of $($items.Count))"
-            $script:CurSize = $sizes[$it.Tag]
+            $script:CurSize = [long]$sizes[$it.Tag]
             $onPhone = Quote-Sh "$target/$($it.Text)"
             $script:Measure = { Get-PhoneSize $onPhone }.GetNewClosure()
             Update-Progress $script:DoneBytes
@@ -294,7 +294,7 @@ else {
         foreach ($it in $items) {
             $n++
             $script:ItemText = "Copying $($it.Text)  ($n of $($items.Count))"
-            $script:CurSize = $sizes[$it.Tag]
+            $script:CurSize = [long]$sizes[$it.Tag]
             $onPc = Join-Path $destPath $it.Text
             $script:Measure = { Get-LocalSize $onPc }.GetNewClosure()
             Update-Progress $script:DoneBytes
