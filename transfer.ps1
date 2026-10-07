@@ -17,8 +17,31 @@ $PhoneFolders = [ordered]@{
     'Documents'          = '/sdcard/Documents'
 }
 
-# --exec hands arguments to Linux untouched, so paths with spaces survive.
-function Invoke-Wsl { & wsl.exe -d $Distro --exec @args 2>&1 }
+# Runs a command in WSL (--exec hands arguments to Linux untouched) as a separate process with
+# stdin closed, so wsl can't sit waiting on the launcher's console, and keeps the window
+# responsive while it runs. Sets $script:WslCode to the exit code; returns output lines.
+$script:WslCode = 0
+$script:BusyText = $null
+function Invoke-Wsl {
+    $psi = New-Object System.Diagnostics.ProcessStartInfo 'wsl.exe'
+    # Quote each argument ourselves: Windows PowerShell 5.1 mangles embedded quotes otherwise.
+    # wsl's own options must stay unquoted; only the Linux command's arguments are quoted.
+    $psi.Arguments = "-d $Distro --exec " + (($args | ForEach-Object { '"' + ("$_" -replace '(\\*)"', '$1$1\"' -replace '(\\+)$', '$1$1') + '"' }) -join ' ')
+    $psi.UseShellExecute = $false; $psi.CreateNoWindow = $true
+    $psi.RedirectStandardInput = $true; $psi.RedirectStandardOutput = $true; $psi.RedirectStandardError = $true
+    $p = [System.Diagnostics.Process]::Start($psi)
+    $p.StandardInput.Close()
+    $out = $p.StandardOutput.ReadToEndAsync(); $err = $p.StandardError.ReadToEndAsync()
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    while (-not $p.HasExited) {
+        if ($script:BusyText -and $status) { $status.Text = "$script:BusyText  ($([int]$sw.Elapsed.TotalSeconds)s)" }
+        [System.Windows.Forms.Application]::DoEvents()
+        Start-Sleep -Milliseconds 100
+    }
+    $p.WaitForExit()
+    $script:WslCode = $p.ExitCode
+    ($out.Result + $err.Result) -split "`r?`n" | Where-Object { $_ -ne '' }
+}
 function Quote-Sh([string]$s) { "'" + $s.Replace("'", "'\''") + "'" }  # for adb shell, which re-joins args
 function To-WslPath([string]$p) { (Invoke-Wsl wslpath -u $p | Select-Object -First 1).ToString().Trim() }
 function Format-Size([long]$b) {
@@ -135,16 +158,17 @@ if ($Mode -eq 'Send') {
         [void](Invoke-Wsl adb shell "mkdir -p $(Quote-Sh $target)")
         $progress.Maximum = $items.Count; $progress.Value = 0; $ok = 0; $failed = @()
         foreach ($it in $items) {
-            $status.Text = "Sending $($it.Text)  ($($progress.Value + 1) of $($items.Count))..."
+            $script:BusyText = "Sending $($it.Text)  ($($progress.Value + 1) of $($items.Count))..."
             [System.Windows.Forms.Application]::DoEvents()
             [void](Invoke-Wsl adb push (To-WslPath $it.Tag) "$target/")
-            if ($LASTEXITCODE -eq 0) {
+            if ($script:WslCode -eq 0) {
                 $ok++
                 if ($rbMove.Checked) { Remove-Item -LiteralPath $it.Tag -Recurse -Force -ErrorAction SilentlyContinue }
                 $list.Items.Remove($it)
             } else { $failed += $it.Text }
             $progress.Value++
         }
+        $script:BusyText = $null
         $verb = if ($rbMove.Checked) { 'Moved' } else { 'Copied' }
         $status.Text = "$verb $ok item(s) to the phone's $($dest.SelectedItem) folder." +
             $(if ($failed) { "  Failed: $($failed -join ', ')" } else { '' })
@@ -197,15 +221,16 @@ else {
         $destW = To-WslPath $destPath
         $progress.Maximum = $items.Count; $progress.Value = 0; $ok = 0; $failed = @()
         foreach ($it in $items) {
-            $status.Text = "Copying $($it.Text)  ($($progress.Value + 1) of $($items.Count))..."
+            $script:BusyText = "Copying $($it.Text)  ($($progress.Value + 1) of $($items.Count))..."
             [System.Windows.Forms.Application]::DoEvents()
             [void](Invoke-Wsl adb pull $it.Tag "$destW/")
-            if ($LASTEXITCODE -eq 0) {
+            if ($script:WslCode -eq 0) {
                 $ok++
                 if ($rbMove.Checked) { [void](Invoke-Wsl adb shell "rm -rf $(Quote-Sh $it.Tag)"); $list.Items.Remove($it) }
             } else { $failed += $it.Text }
             $progress.Value++
         }
+        $script:BusyText = $null
         $verb = if ($rbMove.Checked) { 'Moved' } else { 'Copied' }
         $status.Text = "$verb $ok item(s) to $destPath" + $(if ($failed) { "  Failed: $($failed -join ', ')" } else { '' })
         Set-Busy $false
