@@ -36,7 +36,9 @@ function Start-WslProcess($argv) {
 function Invoke-Wsl {
     $p = Start-WslProcess $args
     $out = $p.StandardOutput.ReadToEndAsync(); $err = $p.StandardError.ReadToEndAsync()
+    $script:CurProc = $p
     while (-not $p.HasExited) {
+        if ($script:Cancel) { Stop-Transfer $p; break }
         if ($script:OnTick) { & $script:OnTick }
         [System.Windows.Forms.Application]::DoEvents()
         Start-Sleep -Milliseconds 100
@@ -44,6 +46,12 @@ function Invoke-Wsl {
     $p.WaitForExit()
     $script:WslCode = $p.ExitCode
     ($out.Result + $err.Result) -split "`r?`n" | Where-Object { $_ -ne '' }
+}
+# Cancel: kill the wsl.exe client and the adb push/pull it started inside Linux.
+$script:Cancel = $false; $script:Busy = $false; $script:CloseAfter = $false
+function Stop-Transfer($p) {
+    try { $p.Kill() } catch { }
+    $k = Start-WslProcess @('pkill', '-f', 'adb (push|pull)'); $k.WaitForExit(5000) | Out-Null
 }
 # Short blocking call for the once-a-second size check (no event pumping, so no re-entry).
 function Invoke-WslQuick {
@@ -158,7 +166,8 @@ $btnGo.Text = 'Transfer'; $btnGo.Size = '110,34'; $btnGo.Location = '500,468'; $
 $btnGo.Font = New-Object System.Drawing.Font('Segoe UI', 10, [System.Drawing.FontStyle]::Bold)
 $btnClose = New-Object System.Windows.Forms.Button
 $btnClose.Text = 'Close'; $btnClose.Size = '100,34'; $btnClose.Location = '626,468'; $btnClose.Anchor = 'Bottom,Right'
-$btnClose.Add_Click({ $form.Close() })
+$btnClose.Add_Click({ if ($script:Busy) { $script:Cancel = $true; $status.Text = 'Cancelling...' } else { $form.Close() } })
+$form.Add_FormClosing({ if ($script:Busy) { $_.Cancel = $true; $script:Cancel = $true; $script:CloseAfter = $true } })
 $form.Controls.AddRange(@($btnGo, $btnClose))
 $form.AcceptButton = $btnGo; $form.CancelButton = $btnClose
 
@@ -174,7 +183,9 @@ function New-FolderCombo {
     $PhoneFolders.Keys | ForEach-Object { [void]$c.Items.Add($_) }; $c.SelectedIndex = 0; $top.Controls.Add($c); $c
 }
 function Set-Busy([bool]$busy) {
-    $form.UseWaitCursor = $busy; $btnGo.Enabled = -not $busy; $top.Enabled = -not $busy
+    $script:Busy = $busy; if ($busy) { $script:Cancel = $false }
+    $btnClose.Text = if ($busy) { 'Cancel' } else { 'Close' }
+    $form.UseWaitCursor = $busy; $btnGo.Enabled = -not $busy; $top.Enabled = -not $busy; $opts.Enabled = -not $busy
     [System.Windows.Forms.Application]::DoEvents()
 }
 
@@ -227,6 +238,7 @@ if ($Mode -eq 'Send') {
             $script:Measure = { Get-PhoneSize $onPhone }.GetNewClosure()
             Update-Progress $script:DoneBytes
             [void](Invoke-Wsl adb push (To-WslPath $it.Tag) "$target/")
+            if ($script:Cancel) { [void](Invoke-WslQuick adb shell "rm -rf $onPhone"); break }
             $script:DoneBytes += $script:CurSize
             if ($script:WslCode -eq 0) {
                 $ok++
@@ -235,10 +247,15 @@ if ($Mode -eq 'Send') {
             } else { $failed += $it.Text }
         }
         Stop-Progress
+        if ($script:Cancel) {
+            $status.Text = "Cancelled. $ok item(s) finished before cancelling; the unfinished one was removed from the destination."
+            Set-Busy $false; if ($script:CloseAfter) { $form.Close() }; return
+        }
         $verb = if ($rbMove.Checked) { 'Moved' } else { 'Copied' }
         $status.Text = "$verb $ok item(s) to the phone's $($dest.SelectedItem) folder." +
             $(if ($failed) { "  Failed: $($failed -join ', ')" } else { '' })
         Set-Busy $false
+        if ($script:CloseAfter) { $form.Close(); return }
     })
 }
 
@@ -271,6 +288,7 @@ else {
         if ($list.Items.Count -eq 0) { $status.Text = "No files in $($src.SelectedItem) (or the phone is not connected)." }
         else { $status.Text = "Select files (Ctrl/Shift-click). Save to: $destPath" }
         Set-Busy $false
+        if ($script:CloseAfter) { $form.Close(); return }
     }
     $src.Add_SelectedIndexChanged({ Load-Phone })
     $btnRefresh.Add_Click({ Load-Phone })
@@ -299,6 +317,7 @@ else {
             $script:Measure = { Get-LocalSize $onPc }.GetNewClosure()
             Update-Progress $script:DoneBytes
             [void](Invoke-Wsl adb pull $it.Tag "$destW/")
+            if ($script:Cancel) { Remove-Item -LiteralPath $onPc -Recurse -Force -ErrorAction SilentlyContinue; break }
             $script:DoneBytes += $script:CurSize
             if ($script:WslCode -eq 0) {
                 $ok++
@@ -306,9 +325,14 @@ else {
             } else { $failed += $it.Text }
         }
         Stop-Progress
+        if ($script:Cancel) {
+            $status.Text = "Cancelled. $ok item(s) finished before cancelling; the unfinished one was removed from the destination."
+            Set-Busy $false; if ($script:CloseAfter) { $form.Close() }; return
+        }
         $verb = if ($rbMove.Checked) { 'Moved' } else { 'Copied' }
         $status.Text = "$verb $ok item(s) to $destPath" + $(if ($failed) { "  Failed: $($failed -join ', ')" } else { '' })
         Set-Busy $false
+        if ($script:CloseAfter) { $form.Close(); return }
         if ($ok) { Start-Process explorer.exe $destPath }
     })
     $form.Add_Shown({ Load-Phone })
