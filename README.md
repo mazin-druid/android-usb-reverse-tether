@@ -55,6 +55,22 @@ The launcher checks each piece and installs only what's missing:
 
 Keep the two minimized windows, **OpenTether Relay** and **USB Auto-Attach**, open while you use it.
 
+## Control panel and file transfer
+
+After setup the launcher window stays open as a control panel:
+
+| Key | Does |
+|---|---|
+| **S** | Send files to the phone: pick one or more files; they go to the phone's **Download** folder |
+| **G** | Get files from the phone: pick from the 15 newest files in its **Download** folder (or **A** for all); they're saved to **Downloads\From Phone** on the PC |
+| **T** | Turn torrent mode on/off (asks for your Ubuntu password) |
+| **R** / Enter | Refresh status (is the phone connected, is torrent mode on) |
+| **Q** | Close the panel (tethering keeps running) |
+
+Transfers go straight over the USB link with `adb` at roughly **30–40 MB/s** (measured on a OnePlus 13:
+31 MB/s to the phone, 37 MB/s back), much faster than going through the network. While tethering, the
+phone is attached to Linux, so it doesn't show up as a drive in Windows Explorer; use S/G instead.
+
 ## Phone settings that matter
 
 Many phones (OnePlus/OPPO/realme especially, also Xiaomi and Samsung) freeze apps in the background.
