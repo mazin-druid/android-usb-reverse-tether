@@ -23,10 +23,38 @@ procedures. This launcher turns it into: **plug in → double-click → tap Star
 
 1. On the phone: enable **Developer options → USB debugging**.
 2. Plug the phone into the PC with a **data** USB cable.
-3. [Download the latest release](../../releases/latest), unzip it anywhere, double-click **`Start-ReverseTether.bat`**.
-4. Follow the prompts. When asked, open **OpenTether** on the phone and tap **Start VPN**.
+3. [Download the latest release](../../releases/latest), unzip it anywhere, double-click **`ReverseTether.bat`**.
+4. Click **Connect**. When it says so, open **OpenTether** on the phone and tap **Start VPN**.
 
-Next time it's the same steps 2–4, and they take a few seconds.
+Next time: plug in, double-click, **Connect**.
+
+## The window
+
+```
+ ● USB passthrough    installed
+ ● Ubuntu (WSL)       Ubuntu
+ ● Linux tools        adb, lsusb, wget, iptables
+ ● OpenTether relay   v0.9.5-beta.1
+ ● Phone              OnePlus 13 (1-5, 22d9:2769)
+ ● Phone in Linux     attached (auto re-attach on)
+ ● USB debugging      authorized
+ ● OpenTether app     installed
+ ● Relay running      running in the background
+ ● Phone tunnel       connected - the phone is using this PC's internet      ← live
+ ● Torrent mode       off                                                   ← live
+
+ [Connect] [Disconnect]                            [Torrent mode: OFF]
+ [Send files to phone] [Get files from phone] [Diagnostics] [Help]
+```
+
+- Each row turns **green** when that step is fine, **yellow** when it's waiting for you (with a hint), **red** on a problem.
+- **Connect** runs every step and installs whatever is missing; it's safe to click again any time.
+- **Disconnect** turns torrent mode off, stops the relay and gives the phone back to Windows.
+- **Your Ubuntu password** is asked in a small box when needed. It's kept in memory for that session only, never saved.
+- **Closing the window** asks whether to keep the phone's internet running in the background or disconnect.
+- **Diagnostics** shows a full health report (with a *Copy report* and *Report a problem* button).
+
+Prefer a console? **`Start-ReverseTether.bat`** does the same steps in a command window, with a text control panel.
 
 ## Requirements
 
@@ -37,41 +65,34 @@ Next time it's the same steps 2–4, and they take a few seconds.
 
 ## What happens on first run
 
-The launcher checks each piece and installs only what's missing:
+**Connect** checks each piece and installs only what's missing:
 
 | Step | Installs / does | You may be asked to |
 |---|---|---|
-| 1 | [usbipd-win](https://github.com/dorssel/usbipd-win) (via winget): passes the phone's USB to Linux | approve a Windows prompt |
-| 2 | WSL2 + Ubuntu | create a Linux username/password, **restart, then run the launcher again** |
-| 3 | `adb`, `lsusb`, `wget` inside Ubuntu | enter your Ubuntu password |
-| 4 | OpenTether relay (downloaded from its official release) | |
-| 5 | Finds your phone (by maker USB ID, or you type its BUSID) | plug in / enable USB debugging |
-| 6 | Shares and attaches the phone to Ubuntu, starts **USB Auto-Attach** | approve an Administrator prompt (first time) |
-| 7 | Checks ADB | tap **Allow USB debugging** on the phone |
-| 8 | Installs the OpenTether app on the phone if missing | |
-| | Starts the **OpenTether Relay** window | enter your Ubuntu password there |
-| | Offers optional **torrent mode** | answer y/N |
-| 9 | Checks the tunnel | open OpenTether, tap **Start VPN** |
+| USB passthrough | [usbipd-win](https://github.com/dorssel/usbipd-win) via winget | approve a Windows prompt |
+| Ubuntu (WSL) | WSL2 + Ubuntu | create a Linux username/password, **restart, then open the app again** |
+| Linux tools | `adb`, `lsusb`, `wget`, `iptables` inside Ubuntu | enter your Ubuntu password |
+| OpenTether relay | downloaded from OpenTether's official release | |
+| Phone | found by maker USB ID, or you pick it from a list | plug in / enable USB debugging |
+| Phone in Linux | shares and attaches the phone to Ubuntu, with automatic re-attach | approve an Administrator prompt (first time) |
+| USB debugging | checks ADB | tap **Allow** on the phone |
+| OpenTether app | installs it on the phone if missing | approve any install prompt on the phone |
+| Relay running | starts the relay in the background | enter your Ubuntu password |
+| Phone tunnel | waits for the phone | open OpenTether, tap **Start VPN** |
 
-Keep the two minimized windows, **OpenTether Relay** and **USB Auto-Attach**, open while you use it.
+## File transfer
 
-## Control panel and file transfer
+**Send files to phone** and **Get files from phone** open a transfer window:
 
-After setup the launcher window stays open as a control panel:
-
-| Key | Does |
-|---|---|
-| **S** | Opens the **Send files to phone** window: add files/folders (buttons or drag-and-drop from Explorer), pick the phone folder, choose **Copy** or **Move** |
-| **G** | Opens the **Get files from phone** window: browse a phone folder (Download, Camera, Pictures, Movies, Music, Documents), select several files (Ctrl/Shift-click or *Select all*), choose where to save on the PC (default **Downloads\From Phone**) and **Copy** or **Move** |
-| **T** | Turn torrent mode on/off (asks for your Ubuntu password) |
-| **R** / Enter | Refresh status (is the phone connected, is torrent mode on) |
-| **Q** | Close the panel (tethering keeps running) |
+- **Send:** add files/folders (buttons or drag-and-drop from Explorer), pick the phone folder, choose **Copy** or **Move**.
+- **Get:** browse a phone folder (Download, Camera, Pictures, Movies, Music, Documents), select several files
+  (Ctrl/Shift-click or *Select all*), choose where to save on the PC (default **Downloads\From Phone**), **Copy** or **Move**.
+- A progress bar shows bytes done, speed and **time left**; **Cancel** stops a transfer and removes the unfinished item.
+- **Move** deletes each original only after that item has transferred successfully.
 
 Transfers go straight over the USB link with `adb` at roughly **30–40 MB/s** (measured on a OnePlus 13:
 31 MB/s to the phone, 37 MB/s back), much faster than going through the network. While tethering, the
-phone is attached to Linux, so it doesn't show up as a drive in Windows Explorer; use S/G instead.
-**Move** deletes each original only after that item has transferred successfully.
-
+phone is attached to Linux, so it doesn't show up as a drive in Windows Explorer; use the transfer window.
 ## Phone settings that matter
 
 Many phones (OnePlus/OPPO/realme especially, also Xiaomi and Samsung) freeze apps in the background.
@@ -129,10 +150,11 @@ See **[TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)** for every known problem an
 
 | File | Purpose |
 |---|---|
-| `Start-ReverseTether.bat` | The launcher |
+| `ReverseTether.bat` + `gui.ps1` | The app window (double-click `ReverseTether.bat`) |
+| `Start-ReverseTether.bat` | Console version of the same launcher |
 | `Diagnose-ReverseTether.bat` + `diagnose.sh` | Read-only health check → `diagnostics.txt` |
 | `torrent-vpn.sh` | Optional torrent mode (phone traffic through Cloudflare WARP) |
-| `transfer.ps1` | File transfer window opened by S/G in the control panel |
+| `transfer.ps1` | File transfer window |
 | `docs/TROUBLESHOOTING.md` | Problems and fixes |
 
 ## What it does NOT touch
